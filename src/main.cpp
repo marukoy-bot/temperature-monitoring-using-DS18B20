@@ -3,7 +3,7 @@
 #include <DallasTemperature.h>
 #include <SoftwareSerial.h>
 
-#define num "+639151635499"
+#define num "+639xxxxxxxxx"
 #define one_wire_bus    A0
 #define rx              2
 #define tx              3
