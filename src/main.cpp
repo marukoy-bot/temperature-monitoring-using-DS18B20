@@ -2,8 +2,8 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <SoftwareSerial.h>
+#include "config.h"
 
-#define num "+639151635499"
 #define one_wire_bus    A0
 #define rx              2
 #define tx              3
@@ -65,7 +65,7 @@ void loop() {
         unsigned long elapsed = millis() - lastSMS;
 
         if (!messageSent) {
-            sendSMS(num, temperature);
+            sendSMS(PHONE_NUMBER, temperature);
             Serial.println("SMS Sent.");
             messageSent = true;
         }
@@ -86,7 +86,7 @@ void loop() {
     } else {
         messageSent = false;
     }
-    
+
     delay(1000);
 }
 
