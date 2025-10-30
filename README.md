@@ -10,7 +10,9 @@ You can message the device certain keywords to perform subscription actions. Dev
 - `GSM LIST` - gets the list of the subscribers.
 # Components
 - DS18B20 temperature Sensor
-- ESP32
+- ESP32 + Breakout board
 - SIM800L EVB GSM module
 - Buzzer module
 - RGY LED module
+# Hardware Notes
+- SIM800L (or GSM modules in general) consumes a lot of current when transmitting/receiving messages. This can be mitigated by using a DC buck converter + >=1000uf capacitor in parallel to the power pins of the GSM Module. Capacitor must be placed as close to the GSM module as possible, with thick traces for lesser resistance. 
