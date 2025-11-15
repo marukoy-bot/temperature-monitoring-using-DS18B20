@@ -13,6 +13,9 @@
 #define buzzer          13
 #define MAX_SUBSCRIBERS 5
 
+#define TEST false
+#define test_num "+639xxxxxxxxx"
+
 OneWire oneWire(one_wire_bus);
 DallasTemperature temp_sensor(&oneWire);
 SoftwareSerial gsm(rx, tx);
@@ -39,13 +42,17 @@ bool isSubscribed(String num);
 void clearNamespace();
 void showStats();
 void toggleLEDs();
+void getStatus(String sender);
 
 float temperature = 0;
 unsigned long lastSMS = 0;
 const unsigned long smsCooldown = 300000;   // 5 mins.
 unsigned long last_loop_time = 0;
+unsigned long lastCooldownPrint = 0;  // Track last cooldown print time
 bool messageSent = false;
 bool state_green = false, state_yellow = false, state_red = false, state_alarm = false, led_state = true;
+int lastTempState = -1;  // Track last temperature state (-1: unknown, 0: cold, 1: moderate, 2: hot)
+String tempLevel = "";
 
 void setup() {
     Serial.begin(115200);
@@ -72,55 +79,100 @@ void loop() {
         showStats();  
     }
 
+    int currentTempState = -1;
+
     if (temperature < 50) {
         state_green = true;
         state_yellow = false;
         state_red = false;
+        currentTempState = 0;
+        tempLevel = "NORMAL";
     } 
     else if (temperature >= 50 && temperature <= 70) {
         state_green = false;
         state_yellow = true;
         state_red = false;
+        currentTempState = 1;
+        tempLevel = "MODERATE";
     }
     else if (temperature > 70) {
         state_green = false;
         state_yellow = false;
         state_red = true;
+        currentTempState = 2;
+        tempLevel = "HIGH";
     }
 
-    if (temperature >= 60) {
-        onAlarm();
-        unsigned long elapsed = millis() - lastSMS;
+    // Check if temperature state has changed
+    if (currentTempState != lastTempState) {
+        lastTempState = currentTempState;
+        messageSent = false;  // Reset message flag when state changes
+        lastSMS = millis();   // Reset cooldown timer
+    }
 
-        if (!messageSent) {
-            String message = 
-                "WARNING: High temperature detected (" + 
-                String(temperature) + " C) ";
-            
+    // Send SMS alert based on current temperature state
+    unsigned long elapsed = millis() - lastSMS;
+
+    if (currentTempState == 0 && !messageSent) {
+        // Moderate alert
+        String message = "[ALERT]\nTemperature is NORMAL (" + String(temperature) + " C)"; 
+        
+        #if (TEST == false)
             for (int i = 0; i < subscriber_count; i++) {
                 if (subscribers[i].length() > 0) {
                     sendSMS(subscribers[i], message);
                 }
             }
-
-            Serial.println("SMS sent to all subscribers.");
-            messageSent = true;
-        }
+        #else
+            sendSMS(test_num, message);
+        #endif
         
-        if (elapsed >= smsCooldown) {
-            lastSMS = millis();
-        }        
+        Serial.println("NORMAL alert SMS sent to all subscribers.");
+        messageSent = true;
     }
-    else {
-        offAlarm();
+    else if (currentTempState == 1 && !messageSent) {
+        // Moderate alert
+        String message = "[ALERT]\nTemperature is MODERATE (" + String(temperature) + " C)";
+        
+        #if (TEST == false)
+            for (int i = 0; i < subscriber_count; i++) {
+                if (subscribers[i].length() > 0) {
+                    sendSMS(subscribers[i], message);
+                }
+            }
+        #else
+            sendSMS(test_num, message);
+        #endif
+        
+        Serial.println("Moderate alert SMS sent to all subscribers.");
+        messageSent = true;
     }
+    else if (currentTempState == 2 && !messageSent) {
+        // Hot alert (high temperature)
+        String message = "[WARNING]\nHIGH temperature detected (" + String(temperature) + " C)";
+        
+        #if (TEST == false)
+            for (int i = 0; i < subscriber_count; i++) {
+                if (subscribers[i].length() > 0) {
+                    sendSMS(subscribers[i], message);
+                }
+            }
+        #else
+            sendSMS(test_num, message);
+        #endif
+        
+        Serial.println("Hot alert SMS sent to all subscribers.");
+        messageSent = true;
+    }
+
+    (currentTempState == 2) ? onAlarm() : offAlarm();
     
-    unsigned long elapsed = millis() - lastSMS;
     if (elapsed < smsCooldown && messageSent) {
-        unsigned long remaining = (smsCooldown - elapsed) / 1000;
-        Serial.println("SMS Cooldown: " + String(remaining) + " seconds");
-    } else {
-        messageSent = false;
+        if (millis() - lastCooldownPrint >= 1000) {
+            lastCooldownPrint = millis();
+            unsigned long remaining = (smsCooldown - elapsed) / 1000;
+            Serial.println("SMS Cooldown: " + String(remaining) + " seconds");
+        }
     }
 }
 
@@ -165,8 +217,13 @@ void toggleBuzzer(bool state) {
 }
 
 void updateGSM() {
-    delay(500);
-    while (gsm.available()) Serial.write((char)gsm.read());
+    delay(100);
+    int timeout = 0;
+    while (gsm.available() && timeout < 100) {
+        Serial.write((char)gsm.read());
+        timeout++;
+        delay(5);
+    }
 }
 
 void showStats() {
@@ -182,40 +239,39 @@ void toggleLEDs(){
 void initializeGSM () {
     Serial.println("Checking module...");
     gsm.begin(9600);
+    delay(100);
 
     gsm.println("AT");
-    updateGSM();
+    delay(100);
 
     gsm.println("AT+CSCS=\"GSM\"");
-    updateGSM();
+    delay(100);
 
     gsm.println("AT+CNMI=1,2,0,0,0");
-    updateGSM();
+    delay(100);
 
     gsm.println("AT+CMGF=1");
-    updateGSM();
+    delay(100);
 
     Serial.println("Updating time...");
     gsm.println("AT+CLTS=1");
-    updateGSM();
+    delay(100);
 
     gsm.println("AT&W");
-    updateGSM();
+    delay(100);
 }
 
 void sendSMS (String num, String message) {
     gsm.println("AT+CMGF=1");
-    updateGSM();
-    delay(250);
-
+    delay(100);
+    
     gsm.println("AT+CMGS=\"" + num + "\"");
-    updateGSM();
-    delay(1000);    
+    delay(500);    
 
     gsm.print(message);
     gsm.print(char(26));
+    delay(1000);
     updateGSM();
-    delay(2000);
 }
 
 void loadSubscribers() {
@@ -305,10 +361,12 @@ void deleteSubscriber(String num) {
 void checkSMS() {    
     if (gsm.available()) {
         String response = "";
+        int timeout = 0;
         
-        while (gsm.available()) {
+        while (gsm.available() && timeout < 200) {
             response += (char)gsm.read();
-            delay(10);
+            delay(5);
+            timeout++;
         }
 
         response.toUpperCase();
@@ -328,9 +386,6 @@ void checkSMS() {
             message.trim();
         }
 
-        // Serial.println("Sender: " + sender);
-        // Serial.println("message: " + message);
-
         if (message.indexOf("GSM SUB") > -1) {
             addSubscriber(sender);
         }
@@ -339,6 +394,9 @@ void checkSMS() {
         }
         else if (message.indexOf("GSM LIST") > -1) {
             getSubscriberList(sender);
+        }
+        else if (message.indexOf("GSM STATUS") > -1) {
+            getStatus(sender);
         }
     }    
 }
@@ -349,5 +407,14 @@ void getSubscriberList(String sender) {
     for (int i = 0; i < subscriber_count; i++) {
         message += String(i + 1) + ". " + subscribers[i] + "\n";
     }
+    sendSMS(sender, message);
+}
+
+void getStatus(String sender) {
+    String message = 
+        "[STATUS]\nTemp: " + String(temperature) + " C\n"
+        + "Level: " + tempLevel + "\n"
+        + "LED: " + String(state_green ? "GREEN" : "") + String(state_yellow ? "YELLOW" : "") + String(state_red ? "RED" : "");
+
     sendSMS(sender, message);
 }
